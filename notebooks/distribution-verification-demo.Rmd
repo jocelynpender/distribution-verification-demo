@@ -1,0 +1,33 @@
+---
+title: "Distribution Verification Demo"
+author: "Jocelyn Pender"
+date: "27/01/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(BIEN)
+library(maps) # Useful for making quick maps of occurrences
+library(sp) # A package for spatial data
+library(sf)
+library(gtools)
+library(raster)
+library(statesRcontiguous)
+library(SDMTools)
+require(maps)
+require(sp)
+require(maptools)
+
+source("../../src/functions/clean_gbif.R") # Stores utility functions
+source("../../src/functions/clim_functions.R") # Stores utility functions
+```
+
+- explain the packages used
+- explain the ecosystem of available tooling to help you clean up and verify your species distribution data
+-- Talk about coordinate cleaner - no demo but at least show the results and what the imported data looks like, maps etc.
+- you should always still do manual inspection - this is good practice, and all the tools in the world cannot replace this step - even BIEN recommends it
+- introduce the BIEN dataset, the BIEN recommendations, and other range map resources that might exist
