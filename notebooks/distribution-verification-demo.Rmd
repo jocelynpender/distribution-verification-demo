@@ -18,14 +18,19 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ## Preamble
 
-I built this workflow to support an evolutionary study of sedges (genus *Carex*). I used climatic niche estimates to infer using distribution data downloaded from GBIF. 
+I built this workflow to support an evolutionary study of sedges found in North America (genus *Carex*). For this study, I used distribution data downloaded from GBIF to infer climatic niche. 
 
-GBIF data is notoriously dirty. As a result, many resources exist for distribution data cleaning (e.g., CoordinateCleaner). Additionally, third-party resources, like database projects, exist that can be leveraged to verify distribution datasets.
+GBIF data is notoriously dirty. Luckily, resources exist for distribution data cleaning (e.g., CoordinateCleaner) in R. Additionally, third-party resources, like range map database projects, exist that can be leveraged to curate distribution datasets.
 
 In this demo, I'll be using a third-party database project called BIEN (Botanical Information and Ecology Network; http://bien.nceas.ucsb.edu/bien/biendata/bien-2/species-range-models/) to identify potentially incorrect GBIF records.
 
+Note that my workflow may be overly complex. It includes ~400 species' datasets all analysed at once. In theory, this work would be easier if performed on a per species basis.
+
 ## Packages
 
+I like to use the set of packages called ["tidyverse"](https://www.tidyverse.org/) to improve the readability of my code. If you use R regularly, and haven't heard of tidyverse, I encourage you to check it out.
+
+I like to shunt the internals of my analysis into functions stored in .R files. For this demo, I'll explicitly include all utility functions in the notebook.
 
 ```{r packageimport}
 
@@ -33,10 +38,9 @@ library(tidyverse) # I use this for more readable code
 source("../src/data/clean_gbif.R") # Stores utility functions
 ```
 
-
 ## Distribution data
 
-GBIF distribution data have already been harvested for *Carex* species. Let's import the data and take a look.
+GBIF distribution data have already been harvested for all *Carex* species used in my study. This process takes some time. Let's import the data and take a look.
 
 ```{r dataimport}
 # (N.B.: removed gbif_data[[134]] Carex heteroneura, a duplicate)
@@ -48,11 +52,25 @@ gbif_species_list <- names(gbif_data)
 
 ```
 
-There are `r length(gbif_species_list)` species in the GBIF dataset.
+There are `r length(gbif_species_list)` species in the GBIF dataset. 
 
-## Coordinate cleaner
+## CoordinateCleaner
 
-- ....
+[CoordinateCleaner](https://cran.r-project.org/web/packages/CoordinateCleaner/CoordinateCleaner.pdf) is a very useful package for flagging potentially erroneous occurrence records. If you are interested, this is the function I ran on my data:
+
+```{r coordinatecleanerdemo}
+clean_gbif <- function(dat) {
+  print(dat$species %>% unique)
+  flag <- try(clean_coordinates(x = dat, lon = "decimalLongitude", lat = "decimalLatitude", 
+    countries = "countryCode", species = "species", tests = c("capitals", "centroids", 
+      "equal", "gbif", "institutions", "zeros", "duplicates", "seas", "validity")))  # most test are on by default
+  return(flag)
+}
+```
+
+The `clean_coordinates` function is the workhorse of the package. You can choose which tests you'd like to run based on what you suspect may be wrong with your data (e.g., capitals = do your distribution data match the coordinates of a capital city, centroids = do your distribution data match the coordinates within a radius around country centroids).
+
+I'll import the results of running clean_coordinates and show you the results visually for a few species.
 
 ```{r coordinatecleaner}
 
@@ -72,31 +90,38 @@ coordinate_cleaner_flags[subset_for_plotting] %>% lapply(., function(x) plot(x, 
 
 ```
 
+## Range maps
 
-## BIEN range maps
+It was recommended to me by a reviewer on my paper to verify my distribution data against range maps. I opted to try out [BIEN range maps](http://bien.nceas.ucsb.edu/bien/biendata/bien-2/species-range-models/) because they can be downloaded within R. 
 
-### Download the maps
+Note that these maps are **estimations.** BIEN has produced these maps using [Maxent](http://www.cs.princeton.edu/~schapire/papers/ecolmod.pdf). Only ranges for species with five or more validly georeference observations were estimated using Maxent. For species with fewer than five points, BIEN uses a variety of approaches, as outlined in this [decision tree](http://bien.nceas.ucsb.edu/bien/projects/methods-for-estimating-range-size/modeling-decision-tree/).
+
+### Download BIEN range maps
 ```{r bienrangemaps}
 
 library(BIEN)
 
 # Download BIEN range maps using species names
-get_range_name <- function(sp_name) {
+get_range_using_name <- function(sp_name) {
   print(sp_name)
-  range <- try(BIEN_ranges_load_species(species = sp_name))
+  range <- try(BIEN_ranges_load_species(species = sp_name)) # I wrapped the function in try to allow it to fail and continue pulling data for subsequent species
   return(range)
 }
 
-# ranges <- mapply(get_range_name, gbif_species_list)
+# ranges <- mapply(get_range_using_name, gbif_species_list)
 # saveRDS(ranges, file = "../data/interim/bien_ranges_demo.RData")
 ranges <- readRDS("../data/interim/bien_ranges_demo.RData")
 
 ```
 
-### Clean BIEN range list by removing failed species
+
+### Clean BIEN range maps dataset
+
+#### Remove species with no BIEN range map
 ```{r cleanbienranges}
 
-clean_ranges <- function(ranges) {
+# Here I am looping through the downloaded range maps and removing failures.
+remove_failed_species <- function(ranges) {
   failed <- c()
   for (i in 1:length(ranges)) {
     if (is.character(ranges[[i]])) {
@@ -109,25 +134,57 @@ clean_ranges <- function(ranges) {
   return(ranges)
 }
 
-cleaned_bien_ranges <- clean_ranges(ranges)
+cleaned_bien_ranges <- remove_failed_species(ranges)
 
 ```
 
 ### BIEN download statistics
 ```{r matchbienranges}
-# match up data
-
+# First, match species in GBIF dataset and cleaned BIEN dataset.
 bien_species_list <- names(cleaned_bien_ranges) # Generate a species name list
-missing_bien_maps <- gbif_species_list %>% .[!. %in% bien_species_list] # Which species in the GBIF list are NOT in the BIEN download list
+missing_bien_maps <- gbif_species_list %>% .[!. %in% bien_species_list] # Which species in the GBIF list are NOT in the BIEN download list?
 subsetted_gbif_data <- gbif_data[bien_species_list]
 
 ```
 
 Out of `r length(gbif_species_list)` species in the GBIF dataset, we were successful in downloading maps for `r length(bien_species_list)` species. Hooray! The species for which no BIEN map was available are: `r print(missing_bien_maps)`
 
-### Compare GBIF data to BIEN ranges using CoordinateCleaner function `cc_iucn`
 
-```{r}
+#### Remove small BIEN ranges
+
+```{r bienareas}
+get_polygon_area <- function(range) {
+  poly <- sf::st_as_sf(range)  # calculate area of polygon using sf package
+  poly$area <- st_area(poly)  #Take care of units
+  area <- poly$area %>% as.numeric
+  return(area)
+}
+
+areas <- lapply(cleaned_bien_ranges, get_polygon_area) %>% unlist # first, get areas of ranges to weed out bad data. The area of the polygon must be a certain size. (Some BIEN ranges were tiny and not realistic!)
+cleaned_bien_ranges <- cleaned_bien_ranges[areas > 1e+09]
+bien_species_list <- names(cleaned_bien_ranges)
+```
+
+After removing unreliably restricted BIEN range maps, `r length(bien_species_list)` species remain.
+
+## Visualize range maps
+
+The range
+
+```{r visualizebien}
+plot_range <- function(range) {
+  map('world', fill=T , col= "grey", bg="light blue", xlim = c(-180,-20), ylim = c(-60,80))
+  plot(range, col="green", add=T)
+}
+
+lapply(cleaned_bien_ranges[subset_for_plotting], plot_range)
+
+```
+
+## Compare GBIF data to BIEN ranges
+Using CoordinateCleaner function `cc_iucn`
+
+```{r comparegbifbien}
 
 # Compare distribution data to range data and return the results in a vector
 range_comparison <- function(dat, range) {
@@ -136,10 +193,32 @@ range_comparison <- function(dat, range) {
   return(dat_range_flags)
 }
 
-gbif_bien_comparison <- map2(subsetted_gbif_data, cleaned_bien_ranges, range_comparison) # map2 is a purrr convenience function to map a function to two lists
+# gbif_bien_comparison <- map2(subsetted_gbif_data, cleaned_bien_ranges, range_comparison) # map2 is a purrr convenience function to map a function to two lists
+# saveRDS(gbif_bien_comparison, file = "../data/interim/gbif_bien_comparison_demo.RData")
+gbif_bien_comparison <- readRDS("../data/interim/gbif_bien_comparison_demo.RData")
 
 ```
 
 TODO: explain parameters used in the functions
+
+### Plot GBIF distribution data and BIEN range map comparison
+
+```{r mapgbifbien}
+
+plot_range_comparison_inline <- function(dat_range_flags, sp_range) {
+  sp_name <- dat_range_flags$species %>% unique
+  exclude <- dat_range_flags[dat_range_flags$range_flags == FALSE, ]  # Plot the range test results
+  include <- dat_range_flags[dat_range_flags$range_flags == TRUE, ]
+  map("world", fill = TRUE, col = "grey")  #, xlim = c(-180,-20), ylim = c(-60,80))
+  plot(sp_range, col = "green", add = TRUE)
+  points(exclude$decimalLongitude, exclude$decimalLatitude, col = "red", cex = 0.6)
+  points(include$decimalLongitude, include$decimalLatitude, col = "purple", cex = 0.6)
+}
+
+# map2(gbif_bien_comparison, cleaned_bien_ranges, plot_range_comparison_inline)
+map2(gbif_bien_comparison[subset_for_plotting], cleaned_bien_ranges[subset_for_plotting], plot_range_comparison_inline)
+
+```
+
 
 ## Summary of results

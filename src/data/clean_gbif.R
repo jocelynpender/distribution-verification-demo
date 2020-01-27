@@ -11,6 +11,7 @@ require(gtools)
 require(maps)
 require(sp)
 require(maptools)
+require(sf)
 
 download_gbif <- function(sp_name) {
   print(sp_name)
@@ -40,13 +41,13 @@ get_range <- function(dat) {
   return(range)
 }
 
-get_range_name <- function(sp_name) {
+get_range_using_name <- function(sp_name) {
   print(sp_name)
   range <- try(BIEN_ranges_load_species(species = sp_name))
   return(range)
 }
 
-clean_ranges <- function(ranges) {
+remove_failed_species <- function(ranges) {
   failed <- c()
   for (i in 1:length(ranges)) {
     if (is.character(ranges[[i]])) {
