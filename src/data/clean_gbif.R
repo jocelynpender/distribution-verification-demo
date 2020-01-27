@@ -59,7 +59,7 @@ clean_ranges <- function(ranges) {
   return(ranges)
 }
 
-range_comp <- function(dat, range) {
+range_comparison <- function(dat, range) {
   range_flags <- try(cc_iucn(x = dat, range = range, lon = "decimalLongitude", lat = "decimalLatitude", 
     value = "flagged", buffer = 1))
   dat_range_flags <- cbind(dat, range_flags)
@@ -74,7 +74,7 @@ plot_flag <- function(flag, device) {
   ggsave(file_name, device = device)
 }
 
-plot_range_comp <- function(dat_range_flags, sp_range) {
+plot_range_comparison <- function(dat_range_flags, sp_range) {
   sp_name <- dat_range_flags$species %>% unique
   date <- format(Sys.time(), "%Y-%m-%d")
   file_name <- paste(sp_name, "_range_map_", date, ".pdf", sep = "")
