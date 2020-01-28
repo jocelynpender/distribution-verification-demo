@@ -9,13 +9,6 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-
-- explain the packages used
-- explain the ecosystem of available tooling to help you clean up and verify your species distribution data
--- Talk about coordinate cleaner - no demo but at least show the results and what the imported data looks like, maps etc.
-- you should always still do manual inspection - this is good practice, and all the tools in the world cannot replace this step - even BIEN recommends it
-- introduce the BIEN dataset, the BIEN recommendations, and other range map resources that might exist
-
 ## Preamble
 
 I built this workflow to support an evolutionary study of sedges found in North America (genus *Carex*). For this study, I used distribution data downloaded from GBIF to infer climatic niche. 
@@ -30,7 +23,7 @@ Note that my workflow may be overly complex. It includes ~400 species' datasets 
 
 I like to use the set of packages called ["tidyverse"](https://www.tidyverse.org/) to improve the readability of my code. If you use R regularly, and haven't heard of tidyverse, I encourage you to check it out.
 
-I like to shunt the internals of my analysis into functions stored in .R files. For this demo, I'll explicitly include all utility functions in the notebook.
+I like to shunt the internals of my analysis into functions stored in .R files. But for this demo, I'll explicitly include all utility functions in the notebook.
 
 ```{r packageimport}
 
@@ -40,19 +33,35 @@ source("../src/data/clean_gbif.R") # Stores utility functions
 
 ## Distribution data
 
-GBIF distribution data have already been harvested for all *Carex* species used in my study. This process takes some time. Let's import the data and take a look.
+I've already harvested GBIF distribution data for all *Carex* species used in my study. This process takes some time. Let's import the data and take a look.
 
 ```{r dataimport}
 # (N.B.: removed gbif_data[[134]] Carex heteroneura, a duplicate)
 # saveRDS(gbif_data, "../data/raw/gbif_data_demo.RDS")
 gbif_data <- readRDS("../data/raw/gbif_data_demo.RDS")
 gbif_species_list <- names(gbif_data)
-
-# Insert figures exploring the data here!
-
 ```
 
 There are `r length(gbif_species_list)` species in the GBIF dataset. 
+
+```{r gbifinspect}
+num_records_gbif_data <- lapply(gbif_data, nrow) %>% unlist
+hist(num_records_gbif_data, main = "Number of GBIF Occurrence Records per Species", xlab = "Number of Occurrence Records", col = "light blue", breaks = 20)
+```
+The median number of records is `r summary(num_records_gbif_data)["Median"]` and the average is `r summary(num_records_gbif_data)["Mean"]`.
+
+We can see that there is something strange happening on the right side of this histogram. A large number of species has ~5 000 records. This was the cap I placed on the number of records to be downloaded from GBIF. But could so many species really have so many records in GBIF? 
+
+GBIF data comes with a column called "coordinateUncertaintyInMeters". Does this column help us to clean our GBIF data? Well, it isn't always present, and the units used in the data may have been misused:
+
+```{r coordinateuncertainty}
+coord_uncertainty_gbif_data <- lapply(gbif_data, function(x) x$coordinateUncertaintyInMeters) %>% unlist 
+coord_uncertainty_present_gbif_data <- coord_uncertainty_gbif_data %>% is.na %>% table
+barplot(coord_uncertainty_present_gbif_data, col = "light green", main = "Number of Occurrence Records with Associated Uncertainty Data", xlab = "Uncertainty Data Present")
+hist(coord_uncertainty_gbif_data, col = "light green", main = "Occurrence Record Uncertainty Data", xlab = "Coordinate Uncertainty in Meters")
+
+
+```
 
 ## CoordinateCleaner
 
@@ -63,7 +72,7 @@ clean_gbif <- function(dat) {
   print(dat$species %>% unique)
   flag <- try(clean_coordinates(x = dat, lon = "decimalLongitude", lat = "decimalLatitude", 
     countries = "countryCode", species = "species", tests = c("capitals", "centroids", 
-      "equal", "gbif", "institutions", "zeros", "duplicates", "seas", "validity")))  # most test are on by default
+      "equal", "gbif", "institutions", "zeros", "duplicates", "seas", "validity")))  # most tests are on by default
   return(flag)
 }
 ```
@@ -76,25 +85,48 @@ I'll import the results of running clean_coordinates and show you the results vi
 
 library(CoordinateCleaner)
 
-coordinate_cleaner_flags <- readRDS("../data/raw/cc_flags.RDS")
+coordinate_cleaner_flags <- readRDS("../data/raw/cc_flags_demo.RDS")
 #setwd("../../visualization/interim/coordinate_cleaner/2019-06-06")
 #lapply(flags, function(x) plot_flag(x, "pdf")) # plot cc results
 
 ```
-```{r coordinate_cleaner_maps}
+
+Let's see what the maps look like:
+
+```{r coordinate_cleaner_maps, message=FALSE}
 # Plot examples of Coordinate Cleaner results
 # par(mfrow=c(2,5)) # debug
 subset_for_plotting <- sample(gbif_species_list, 10)
+# subset_for_plotting <- c("Carex aestivalis", "Carex occidentalis")
 coordinate_cleaner_flags[subset_for_plotting] %>% lapply(., function(x) plot(x, lon = "decimalLongitude", lat = "decimalLatitude", details = TRUE))
 
 
 ```
 
+What kinds of numbers do we get in terms of identified issues?
+
+```{r, message=FALSE}
+
+coordinate_cleaner_flags_isolated <- coordinate_cleaner_flags %>% lapply(., function(x) x[,13:ncol(x)]) # Flags are in columns 13 onwards
+coordinate_cleaner_flags_isolated_summary <- coordinate_cleaner_flags_isolated %>% lapply(., summary)
+coordinate_cleaner_flags_isolated_summary <- map2(coordinate_cleaner_flags_isolated_summary, lapply(coordinate_cleaner_flags, nrow), c) # Add number of records. map2 is a purrr convenience function to map a function to two lists
+
+barplot_species <- coordinate_cleaner_flags_isolated_summary[subset_for_plotting]
+for (i in 1:length(barplot_species)) {
+  barplot(barplot_species[[i]], main = names(barplot_species)[i], col = "light coral")
+}
+
+```
+
+The most common issue with GBIF data is the presence of duplicate records. It looks like in my data, I also have problems with records occurring in the sea.
+
 ## Range maps
 
-It was recommended to me by a reviewer on my paper to verify my distribution data against range maps. I opted to try out [BIEN range maps](http://bien.nceas.ucsb.edu/bien/biendata/bien-2/species-range-models/) because they can be downloaded within R. 
+It was recommended to me by a reviewer on my paper to verify my distribution data against range maps. As a result, I opted to try out [BIEN range maps](http://bien.nceas.ucsb.edu/bien/biendata/bien-2/species-range-models/) because they can be downloaded within R. 
 
 Note that these maps are **estimations.** BIEN has produced these maps using [Maxent](http://www.cs.princeton.edu/~schapire/papers/ecolmod.pdf). Only ranges for species with five or more validly georeference observations were estimated using Maxent. For species with fewer than five points, BIEN uses a variety of approaches, as outlined in this [decision tree](http://bien.nceas.ucsb.edu/bien/projects/methods-for-estimating-range-size/modeling-decision-tree/).
+
+Other range maps exist that can be used in an analysis like this. For example, the IUCN provides polygons for mammals, amphibians, birds, reptils, freshwater & marine animals, etc. 
 
 ### Download BIEN range maps
 ```{r bienrangemaps}
@@ -139,6 +171,7 @@ cleaned_bien_ranges <- remove_failed_species(ranges)
 ```
 
 ### BIEN download statistics
+
 ```{r matchbienranges}
 # First, match species in GBIF dataset and cleaned BIEN dataset.
 bien_species_list <- names(cleaned_bien_ranges) # Generate a species name list
@@ -147,10 +180,15 @@ subsetted_gbif_data <- gbif_data[bien_species_list]
 
 ```
 
-Out of `r length(gbif_species_list)` species in the GBIF dataset, we were successful in downloading maps for `r length(bien_species_list)` species. Hooray! The species for which no BIEN map was available are: `r print(missing_bien_maps)`
+Out of `r length(gbif_species_list)` species in the GBIF dataset, we were successful in downloading maps for `r length(bien_species_list)` species. Hooray! The species for which no BIEN map was available are: 
+```{r missingbienmaps}
+print(missing_bien_maps)
+```
 
 
 #### Remove small BIEN ranges
+
+I noticed while inspecting my maps that some BIEN ranges are TINY, and as a result occurrence records never fall inside the range. So I'll remove these data before proceeding.
 
 ```{r bienareas}
 get_polygon_area <- function(range) {
@@ -162,19 +200,25 @@ get_polygon_area <- function(range) {
 
 areas <- lapply(cleaned_bien_ranges, get_polygon_area) %>% unlist # first, get areas of ranges to weed out bad data. The area of the polygon must be a certain size. (Some BIEN ranges were tiny and not realistic!)
 cleaned_bien_ranges <- cleaned_bien_ranges[areas > 1e+09]
+
+# Re-run species list and data subset
 bien_species_list <- names(cleaned_bien_ranges)
+subsetted_gbif_data <- gbif_data[bien_species_list]
 ```
 
 After removing unreliably restricted BIEN range maps, `r length(bien_species_list)` species remain.
 
 ## Visualize range maps
 
-The range
+This is what BIEN range maps look like! They are `SpatialPolygonsDataFrame` objects that contain the projection and extent of the polygon.
 
-```{r visualizebien}
+```{r visualizebien, echo=FALSE,results='hide', fig.keep='all'}
+subset_for_plotting <- sample(bien_species_list, 10)
+
 plot_range <- function(range) {
-  map('world', fill=T , col= "grey", bg="light blue", xlim = c(-180,-20), ylim = c(-60,80))
-  plot(range, col="green", add=T)
+  map('world', fill=TRUE, col= "grey", bg="light blue", xlim = c(-180,-20), ylim = c(-60,80))
+  plot(range, col = "light green", add = TRUE)
+  title(range$species)
 }
 
 lapply(cleaned_bien_ranges[subset_for_plotting], plot_range)
@@ -182,7 +226,14 @@ lapply(cleaned_bien_ranges[subset_for_plotting], plot_range)
 ```
 
 ## Compare GBIF data to BIEN ranges
-Using CoordinateCleaner function `cc_iucn`
+
+Now it's time to use these range maps to identify erroneous GBIF occurrence records. To do this, I leveraged the CoordinateCleaner function `cc_iucn`.
+
+From the `cc_iucn` documentation:
+
+> "Removes or flags records outside of the provided natural range polygon, on a per species basis."
+
+Luckily, all the function needs is a `SpatialPolygonsDataFrame` (which we have!) and the data to be tested. You must specify which columns contain your lat and lon data.
 
 ```{r comparegbifbien}
 
@@ -199,26 +250,78 @@ gbif_bien_comparison <- readRDS("../data/interim/gbif_bien_comparison_demo.RData
 
 ```
 
-TODO: explain parameters used in the functions
-
 ### Plot GBIF distribution data and BIEN range map comparison
 
-```{r mapgbifbien}
+See below for an idea of how this comparison looks. 
+
+Normally, I would save these maps to a PDF file and run the plotting function on my full dataset. Then, I would examine these PDF files externally, so that I can flip through them using my computer's file browser (faster than R).
+
+Examining your data manually is still good practice, and most data providers will recommend it.
+
+```{r mapgbifbien, echo=FALSE,results='hide', fig.keep='all'}
 
 plot_range_comparison_inline <- function(dat_range_flags, sp_range) {
   sp_name <- dat_range_flags$species %>% unique
   exclude <- dat_range_flags[dat_range_flags$range_flags == FALSE, ]  # Plot the range test results
   include <- dat_range_flags[dat_range_flags$range_flags == TRUE, ]
-  map("world", fill = TRUE, col = "grey")  #, xlim = c(-180,-20), ylim = c(-60,80))
+  # pdf(file = file_name, height = 20, width = 20)
+  map('world', fill=TRUE, col= "grey", bg="light blue") #, xlim = c(-180,-20), ylim = c(-60,80))
   plot(sp_range, col = "green", add = TRUE)
   points(exclude$decimalLongitude, exclude$decimalLatitude, col = "red", cex = 0.6)
   points(include$decimalLongitude, include$decimalLatitude, col = "purple", cex = 0.6)
+  title(sp_range$species)
+  # dev.off()
 }
 
-# map2(gbif_bien_comparison, cleaned_bien_ranges, plot_range_comparison_inline)
+# map2(gbif_bien_comparison, cleaned_bien_ranges, plot_range_comparison_inline) # map2 is a purrr convenience function to map a function to two lists
 map2(gbif_bien_comparison[subset_for_plotting], cleaned_bien_ranges[subset_for_plotting], plot_range_comparison_inline)
 
 ```
 
+### Remove occurrences from outside of BIEN range maps
+
+As described previously, I like to visually examine my results. This tends to reveal problems that are impossible to anticipate.
+
+For demonstration purposes, I'll go ahead and remove all occurrences outside of BIEN ranges without such verification:
+
+```{r filtergbiftobien}
+gbif_bien_comparison_filtered <- lapply(gbif_bien_comparison, function(x) x[x$range_flags == TRUE,]) # the range_flags column I've appended above will equal TRUE when the coordinate is within the BIEN range.
+```
 
 ## Summary of results
+
+Now it's time to examine the results of our BIEN range cleaning regime. There are countless ways to visualize results. Here are just a couple of easy R plots.
+
+First, what is the relationship between the number of records we had per species before filtering and after filtering using BIEN ranges?
+
+```{r examineresults}
+num_records <- lapply(gbif_bien_comparison, nrow) %>% unlist
+num_records_filtered <- lapply(gbif_bien_comparison_filtered, nrow) %>% unlist
+filtering_results <- cbind(num_records, num_records_filtered)
+plot(filtering_results, main = "Number of Occurrence Records vs. Number of Filtered Occurrence Records", xlab = "Number of Occurrence Records", ylab = "Number of Occurrence Records After Filtering")
+abline(1, 1, col = "light coral")
+```
+
+The above plot shows that those species with 5 000 records were well filtered: the maximum number of records post-filtered appears around 1500. 
+
+Most species required little filtering, as we can see with the data clumping near the 1:1 line. Let's take a look at the summary statistics to learn more:
+
+```{r summarizeresults}
+summary(filtering_results)
+difference <- num_records - num_records_filtered
+summary(difference)
+```
+
+The median number of records removed was `r summary(difference)["Median"]`, which is considerably fewer than the average of `r summary(difference)["Mean"]`. 
+
+This can be more clearly seen in the histogram below:
+
+```{r examinedifferences}
+
+hist(difference, breaks = 20, col = "light coral", main = "Histogram of Number of Removed Records", xlab = "Number of Removed Records")
+```
+
+## Conclusion
+
+By utlizing resources that exist to verify distribution data, you can improve the quality of your dataset and the quality of your study's results.
+
