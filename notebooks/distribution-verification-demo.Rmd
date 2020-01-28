@@ -2,7 +2,10 @@
 title: "Distribution Verification Demo"
 author: "Jocelyn Pender"
 date: "27/01/2020"
-output: html_document
+output: 
+  html_document: 
+    number_sections: yes
+    toc: yes
 ---
 
 ```{r setup, include=FALSE}
@@ -225,7 +228,7 @@ lapply(cleaned_bien_ranges[subset_for_plotting], plot_range)
 
 ```
 
-## Compare GBIF data to BIEN ranges
+## Compare GBIF data to BIEN range maps
 
 Now it's time to use these range maps to identify erroneous GBIF occurrence records. To do this, I leveraged the CoordinateCleaner function `cc_iucn`.
 
